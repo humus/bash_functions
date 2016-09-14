@@ -79,6 +79,10 @@ cpjar_javac() {
   move_to_target
 }
 
+cpjar_javax() {
+  java -cp "target/test-classes;target/classes;classpath.jar" $1
+}
+
 jar_for_current_project() {
   jar_for_project $(pwd)/pom.xml
 }
