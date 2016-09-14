@@ -41,6 +41,48 @@ make_classpath_entry() {
   tr '@' '\n' | sed -r '2,$s/^/ /'
 }
 
+pmv() {
+  source=$1
+  target=$2
+  mkdir -p "$target"/"$(dirname $source)"
+  mv "$source" "$target"/"$(dirname $source)"/
+}
+
+move_to_target() {
+  mkdir -p target/{test-classes,classes}
+  find_and_move_classfiles src/main/java "$(pwd)/target/classes/"
+  find_and_move_classfiles src/test/java "$(pwd)/target/test-classes/"
+}
+
+find_and_move_classfiles() {
+   dirsrc=$1
+   dirdest=$2
+  (
+    cd $dirsrc
+    find -name '*.class' |
+    while read f; do
+      pmv $f $dirdest
+    done
+  )
+}
+
+drop_class_file() {
+  find -name $1*.class | while read f; do
+    rm $f
+  done
+}
+
+
+cpjar_javac() {
+  javac -cp classpath.jar "$(find -name $1.java -o -name $1)"
+  if [[ "$?" -ne "0" ]]; then drop_class_file $1; return 1; fi;
+  move_to_target
+}
+
+jar_for_current_project() {
+  jar_for_project $(pwd)/pom.xml
+}
+
 #example: 
 #jar_for_project /c/home/r/code/seleniumtests/pom.xml
 
