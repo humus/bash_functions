@@ -27,7 +27,7 @@ build_manifest() {
   echo "Manifest-Version: 1.0"
   echo "Created-By: java_functions"
   echo "Main-Class: org.junit.core.JUnitCore"
-  make_classpath_entry "$jars"
+  make_classpath_entry "$jars:target/classes:target/test-classes"
 }
 
 
@@ -74,13 +74,20 @@ drop_class_file() {
 
 
 cpjar_javac() {
-  javac -cp classpath.jar "$(find -name $1.java -o -name $1)"
+  javac -cp classpath.jar -g -sourcepath 'src/main/java;src/test/java' \
+    "$(find -name $1.java -o -name $1)"
   if [[ "$?" -ne "0" ]]; then drop_class_file $1; return 1; fi;
   move_to_target
 }
 
 cpjar_javax() {
   java -cp "target/test-classes;target/classes;classpath.jar" $1
+}
+
+cpjar_junit() {
+  java -cp "target/test-classes;target/classes;classpath.jar" \
+    org.junit.runner.JUnitCore $1 |
+  grep -E -v 'at (org\.)?junit|at sun\.reflect|at java.lang.reflect'
 }
 
 jar_for_current_project() {
