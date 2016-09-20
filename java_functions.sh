@@ -2,16 +2,40 @@
 jar_for_project() {
   buildfile=$1
   if [[ "$#" -lt "1" ]]; then exit 1; fi
-  printf "\e[33mParsing dependencies\n\e[0m"
-  jars=$(mvn -f $buildfile dependency:build-classpath | parse_classpath_from_pom)
+  parse_dependencies
   dir=$(project_cache_dir $buildfile)
-  printf "\e[33mCreating manifest\n\e[0m"
-  build_manifest $jars > $dir/manifest
-  printf "\e[33mcreating jar\n\e[0m"
-  jar -cmf $dir/manifest $dir/classpath.jar
+  create_jar
+  move_classpath_jar
+}
+
+parse_dependencies() {
+  pyellow "Parsing dependencies"
+  jars=$(mvn -f $buildfile dependency:build-classpath | parse_classpath_from_pom)
+}
+
+move_classpath_jar() {
   destdir=$(dirname $buildfile)/classpath.jar
-  printf "\e[32mcopiando classpath.jar a $destdir \n\e[0m"
+  pgreen "copiando classpath.jar a $destdir"
   cp $dir/classpath.jar $destdir
+}
+
+create_jar() {
+  pyellow "Creating manifest"
+  build_manifest $jars > $dir/manifest
+  pyellow "creating jar"
+  jar -cmf $dir/manifest $dir/classpath.jar
+}
+
+pgreen() {
+  printf "\e[32m"
+  printf "$@\n"
+  printf "\e[0m"
+}
+
+pyellow() {
+  printf "\e[33m"
+  printf "$@\n"
+  printf "\e[0m"
 }
 
 project_cache_dir() {
@@ -50,18 +74,19 @@ pmv() {
 
 move_to_target() {
   mkdir -p target/{test-classes,classes}
-  find_and_move_classfiles src/main/java "$(pwd)/target/classes/"
-  find_and_move_classfiles src/test/java "$(pwd)/target/test-classes/"
+  find_and_move_classfiles src/main/java "$(pwd)/target/classes"
+  find_and_move_classfiles src/test/java "$(pwd)/target/test-classes"
 }
 
 find_and_move_classfiles() {
-   dirsrc=$1
-   dirdest=$2
+  dirsrc=$1
+  dirdest=$2
+  if [[ ! -e $dirsrc ]]; then return; fi
   (
     cd $dirsrc
-    find -name '*.class' |
+    find . -name '*.class' |
     while read f; do
-      pmv $f $dirdest
+      pmv $(echo $f | sed 's#./##') $dirdest
     done
   )
 }
@@ -74,26 +99,73 @@ drop_class_file() {
 
 
 cpjar_javac() {
-  javac -cp classpath.jar -g -sourcepath 'src/main/java;src/test/java' \
-    "$(find -name $1.java -o -name $1)"
+  javac -cp classpath.jar -g -sourcepath "$(localsourcepath)" \
+    "$(find src -name $1.java -o -name $1)"
   if [[ "$?" -ne "0" ]]; then drop_class_file $1; return 1; fi;
-  move_to_target
+    move_to_target
+  }
+
+  cpjar_javax() {
+    java -cp "target/test-classes;target/classes;classpath.jar" $1
+  }
+
+  cpjar_junit() {
+    java -cp "target/test-classes;target/classes;classpath.jar" \
+      org.junit.runner.JUnitCore $1 |
+    grep -E -v 'at (org\.)?junit|at sun\.reflect|at java.lang.reflect'
+  }
+
+  jar_for_current_project() {
+    jar_for_project $(pwd)/pom.xml
+  }
+
+  mnew() {
+    params=()
+    if [[ "$#" -lt "2"  ]]; then return 1; fi
+    while [[ "$#" -gt 2 ]]; do
+      params+=("$1")
+      shift
+    done
+    group=$1
+    artifact=$2
+    mvn archetype:generate -B ${params[@]} \
+      -Dmaven.archetypeArtifactId=maven-archetype-quickstart\
+      -DartifactId=$artifact -DgroupId=$group
+    printf "command was\n mvn archetype:generate -B ${params[@]} -Dmaven.archetypeArtifactId=maven-archetype-quickstart -DartifactId=$artifact -DgroupId=$group \n"
+  }
+
+cpjar_feature() {
+  if [[ "$#" -lt "1" ]]; then return 1; fi
+ dir=$(project_cache_dir $(pwd)/pom.xml)
+  mkdir -p $dir
+  tmp=$(mktemp)
+  java -cp "$(localclasspath)" cucumber.api.cli.Main -g $(glue_dir $(find src -name $1)) \
+  --snippets camelcase -p pretty $(find src -name $1) |
+  tee $tmp
+  sed '1,/You can implement/d' > $dir/$(basename $1).txt $tmp
+  rm $tmp
 }
 
-cpjar_javax() {
-  java -cp "target/test-classes;target/classes;classpath.jar" $1
+glue_dir() {
+  dirname $1 | sed 's#src/\(main\|test\)/resources/##'
 }
 
-cpjar_junit() {
-  java -cp "target/test-classes;target/classes;classpath.jar" \
-    org.junit.runner.JUnitCore $1 |
-  grep -E -v 'at (org\.)?junit|at sun\.reflect|at java.lang.reflect'
+localsourcepath() {
+  sourcepath='src/main/java:src/test/java'
+  if [[ $(uname -s) =~ 'NT' ]]; then
+    sourcepath=$(echo $sourcepath | sed 's/:/;/g')
+  fi
+  echo $sourcepath
 }
 
-jar_for_current_project() {
-  jar_for_project $(pwd)/pom.xml
+localclasspath() {
+  classpath='target/classes:target/test-classes:classpath.jar'
+  if [[ $(uname -s) =~ 'NT' ]]; then
+    classpath=$(echo $classpath | sed 's/:/;/g')
+  fi
+  echo $classpath
 }
 
-#example: 
+#example:
 #jar_for_project /c/home/r/code/seleniumtests/pom.xml
 
