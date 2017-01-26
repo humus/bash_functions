@@ -97,23 +97,32 @@ drop_class_file() {
   done
 }
 
+cpjar_javac_simple() {
+  javac -cp classpath.jar -g -sourcepath "$(localsourcepath)" $*
+
+  if [[ "$?" -ne "0" ]]; then drop_class_file $1; return 1; fi;
+
+  move_to_target
+}
+
 
 cpjar_javac() {
   javac -cp classpath.jar -g -sourcepath "$(localsourcepath)" \
     "$(find src -name $1.java -o -name $1)"
   if [[ "$?" -ne "0" ]]; then drop_class_file $1; return 1; fi;
-    move_to_target
-  }
 
-  cpjar_javax() {
-    java -cp "target/test-classes;target/classes;classpath.jar" $1
-  }
+  move_to_target
+}
 
-  cpjar_junit() {
-    java -cp "target/test-classes;target/classes;classpath.jar" \
-      org.junit.runner.JUnitCore $1 |
-    grep -E -v 'at (org\.)?junit|at sun\.reflect|at java.lang.reflect'
-  }
+cpjar_javax() {
+  java -cp "target/test-classes;target/classes;classpath.jar" $1
+}
+
+cpjar_junit() {
+  java -cp "target/test-classes:target/classes:classpath.jar" \
+    org.junit.runner.JUnitCore $1 |
+  grep -E -v 'at (org\.)?junit|at sun\.reflect|at java.lang.reflect'
+}
 
   jar_for_current_project() {
     jar_for_project $(pwd)/pom.xml
@@ -164,6 +173,31 @@ localclasspath() {
     classpath=$(echo $classpath | sed 's/:/;/g')
   fi
   echo $classpath
+}
+
+
+start_autotest_cycle() {
+  inotifywait -e modify -q -mr --exclude='target|.git/'  --format '%w %f' . |
+
+  while read dir file; do
+    if [[ $file == *".class"* ]]; then
+      continue;
+    fi
+    files=$dir$file
+    if [[ $dir == *"/main/"* ]]; then
+      testfile=$(find src/test -name ${file/.java/Test.java} -o -name ${file/Impl.java/Test.java})
+      files="$dir$file $testfile"
+    fi
+
+    cpjar_javac_simple $files
+
+    if [[ "$?" -eq "0" && -n "$testfile" ]]; then 
+      cpjar_junit $(echo $testfile | sed 's#\.\?/\?src/test/java/##;s#/#.#g;s#\.java##')
+    else
+      echo foo
+    fi
+
+  done;
 }
 
 #example:
