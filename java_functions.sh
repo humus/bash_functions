@@ -175,26 +175,53 @@ localclasspath() {
   echo $classpath
 }
 
+copy_to_resources() {
+  path=$1
+  dest=target/classes
+  if [[ $path == "./src/test/resources"* ]]; then
+    dest=target/test-classes
+  fi
+
+  if [[ ! -d $dest ]]; then
+    mkdir -p $dest
+  fi
+
+  path_resources=$(echo $path | sed 's/\(.*\/resources\)\/\(.*\)/\1/')
+  path_file=$(echo $path | sed 's/\(.*\/resources\)\/\(.*\)/\2/')
+  echo copying $path_file to $dest
+  (
+    cd $path_resources
+    cp --parents $path_file ../../../$dest
+  )
+  
+}
+
 
 start_autotest_cycle() {
   inotifywait -e modify -q -mr --exclude='target|.git/'  --format '%w %f' . |
-
   while read dir file; do
     if [[ $file == *".class"* ]]; then
       continue;
     fi
+
     files=$dir$file
-    if [[ $dir == *"/main/"* ]]; then
+
+    if [[ $dir == *"/resources/"* ]]; then
+      copy_to_resources $dir$file
+      continue;
+    elif [[ $dir == *"/main/"* ]]; then
       testfile=$(find src/test -name ${file/.java/Test.java} -o -name ${file/Impl.java/Test.java})
       files="$dir$file $testfile"
+    elif [[ $file == *"Test.java" ]]; then
+      testfile=$files
+    else
+      continue
     fi
 
     cpjar_javac_simple $files
 
     if [[ "$?" -eq "0" && -n "$testfile" ]]; then 
       cpjar_junit $(echo $testfile | sed 's#\.\?/\?src/test/java/##;s#/#.#g;s#\.java##')
-    else
-      echo foo
     fi
 
   done;
